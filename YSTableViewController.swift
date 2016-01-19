@@ -1,6 +1,6 @@
 //
 //  YSTableViewController.swift
-//  YSTableView
+//  YSTableViewController
 //
 //  Created by 悠二 on 1/13/16.
 //  Copyright © 2016 Yuji. All rights reserved.
@@ -10,16 +10,48 @@ import UIKit
 
 class YSTableViewController: UITableViewController {
     
+    var delegate: YSTableViewControllerDelegate?
     var hightlightedRows = [NSIndexPath]()
     var currentPath: NSIndexPath?
     var allowCrossSectionHighlighting: Bool = true
     var allowHightlightingRowsAcrossSection: Bool = true
-    
+    var usrLongPressing: Bool = false
+    var longPressGesture: UILongPressGestureRecognizer! {
+        didSet {
+            longPressGesture.numberOfTouchesRequired = 1
+            longPressGesture.minimumPressDuration = 0.7
+        }
+    }
     
     //MARK:- ViewControllerLifeCycle
     override func viewDidLoad() {
         super.viewDidLoad()
         self.addKeyboardCommands()
+        self.longPressGesture = UILongPressGestureRecognizer(target: self, action: "longPressRecognized:")
+        self.tableView.addGestureRecognizer(longPressGesture)
+    }
+    
+    override func viewWillDisappear(animated: Bool) {
+        super.viewWillDisappear(animated)
+        self.unhightlightCells()
+    }
+    
+    func longPressRecognized(gesture: UILongPressGestureRecognizer) {
+        
+        if !usrLongPressing {
+            
+            let gesturePoint = gesture.locationInView(self.tableView)
+            let correspondingIndexPath = self.tableView.indexPathForRowAtPoint(gesturePoint)
+            guard let indexPath = correspondingIndexPath else {return}
+            self.delegate?.tableViewController?(self, didLongPressCellAtIndexPath: indexPath)
+            
+        }
+        switch gesture.state {
+        case .Cancelled: fallthrough
+        case .Ended: fallthrough
+        case .Failed: usrLongPressing = false; return
+        default: usrLongPressing = true
+        }
     }
     
     //MARK:- KeyboardCommands
@@ -60,8 +92,8 @@ class YSTableViewController: UITableViewController {
             return
         }
         switch input {
-        case UIKeyInputUpArrow: hightlightCellAtIndexPath(tableView.perviousIndexPath(currentPath: hightlightedRows[0], allowCrossSection: allowCrossSectionHighlighting), atScrollPosition: .Top)
-        case UIKeyInputDownArrow: hightlightCellAtIndexPath(tableView.nextIndexPath(currentPath: hightlightedRows[0], allowCrossSection: allowCrossSectionHighlighting), atScrollPosition: .Bottom)
+        case UIKeyInputUpArrow: hightlightCellAtIndexPath(tableView.perviousIndexPath(currentPath: currentPath ?? hightlightedRows[0], allowCrossSection: allowCrossSectionHighlighting), atScrollPosition: .Top)
+        case UIKeyInputDownArrow: hightlightCellAtIndexPath(tableView.nextIndexPath(currentPath: currentPath ?? hightlightedRows[0], allowCrossSection: allowCrossSectionHighlighting), atScrollPosition: .Bottom)
         case "\r": self.returnKeyDidPressed()
         default: break
         }
@@ -72,6 +104,7 @@ class YSTableViewController: UITableViewController {
         switch input {
         case UIKeyInputUpArrow: appendPreviousIndexPathToSelection()
         case UIKeyInputDownArrow: appendNextIndexPathToSelection()
+        case "\r": self.returnKeyDidPressedWithShiftKey()
         default: break
         }
     }
@@ -79,6 +112,14 @@ class YSTableViewController: UITableViewController {
     private func returnKeyDidPressed() {
         if self.hightlightedRows.count == 1 {
             tableView(self.tableView, didSelectRowAtIndexPath: self.hightlightedRows[0])
+        } else if self.hightlightedRows.count > 1 {
+            self.delegate?.tableViewController?(self, didSelectRowsAtIndexPaths: self.hightlightedRows)
+        }
+    }
+    
+    private func returnKeyDidPressedWithShiftKey() {
+        if self.hightlightedRows.count > 1 {
+            
         }
     }
     
@@ -99,9 +140,11 @@ class YSTableViewController: UITableViewController {
         }
         
         if let cell = self.tableView.cellForRowAtIndexPath(indexPath) {
+            self.delegate?.tableViewController?(self, willHighlightRowsAtIndexPaths: [indexPath])
             cell.highlighted = true
             self.hightlightedRows.append(indexPath)
             self.currentPath = indexPath
+            self.delegate?.tableViewController?(self, didHighlightRowsAtIndexPaths: [indexPath])
         }
     }
     
@@ -123,6 +166,7 @@ class YSTableViewController: UITableViewController {
                 self.tableView.cellForRowAtIndexPath(row)?.highlighted = false
             }
         }
+        self.delegate?.tableViewController?(self, didUnhighlightRowAtIndexPaths: [indexPath])
     }
     
     private func unhightlightCells() {
@@ -132,20 +176,24 @@ class YSTableViewController: UITableViewController {
         if let row = self.tableView.indexPathForSelectedRow {
             self.tableView.cellForRowAtIndexPath(row)?.selected = false
         }
-        
+        let indexPaths = self.hightlightedRows
         self.hightlightedRows.removeAll()
+        self.delegate?.tableViewController?(self, didUnhighlightRowAtIndexPaths: indexPaths)
         self.currentPath = nil
-        
     }
     
     //MARK: Group Highlighting
     
     private func appendPreviousIndexPathToSelection() {
-        appendCloestRowToHightlightedRows(isDescending: true)
+        if self.delegate?.tableViewControllerShouldAllowMultiSelection?(self) ?? true {
+            appendCloestRowToHightlightedRows(isDescending: true)
+        }
     }
     
     private func appendNextIndexPathToSelection() {
-        appendCloestRowToHightlightedRows(isDescending: false)
+        if self.delegate?.tableViewControllerShouldAllowMultiSelection?(self) ?? true {
+            appendCloestRowToHightlightedRows(isDescending: false)
+        }
     }
     
     private func appendCloestRowToHightlightedRows(isDescending descending: Bool) {
@@ -180,13 +228,18 @@ class YSTableViewController: UITableViewController {
     
     override func tableView(tableView: UITableView, didUnhighlightRowAtIndexPath indexPath: NSIndexPath) {
         if hightlightedRows.contains(indexPath) {hightlightCellAtIndexPath(indexPath)}
+        
     }
     
     override func tableView(tableView: UITableView, willDisplayCell cell: UITableViewCell, forRowAtIndexPath indexPath: NSIndexPath) {
         cell.highlighted = hightlightedRows.contains(indexPath)
+        self.delegate?.tableViewController?(self, willDisplayCell: cell, forRowAtIndexPath: indexPath)
     }
     
     override func tableView(tableView: UITableView, didSelectRowAtIndexPath indexPath: NSIndexPath) {
+        
+        if usrLongPressing {return}
+        
         if self.hightlightedRows.count > 0 {
             self.unhightlightCells()
             self.hightlightCellAtIndexPath(indexPath)
@@ -196,12 +249,15 @@ class YSTableViewController: UITableViewController {
             self.hightlightedRows.append(indexPath)
             self.currentPath = indexPath
         }
+        self.delegate?.tableViewController?(self, didSelectRowAtIndexPath: indexPath)
     }
     
     //MARK:- UIResponser
     override func canBecomeFirstResponder() -> Bool {
         return true
     }
+    
+    
 }
 
 //MARK:- Extensions
